@@ -6,42 +6,18 @@ module Mongoid
     DUPLICATE_KEY_ERROR_CODES = [11000,11001]
     MAX_RETRIES = 3
 
-    if Mongoid::VERSION < '3'
-      def self.error_message(exception)
-        exception.message
-      end
-
-      def self.error_code(exception)
-        exception.error_code
-      end
-    else
-      def self.error_message(exception)
-        exception.details["err"]
-      end
-
-      def self.error_code(exception)
-        exception.details["code"]
-      end
-    end
-
     def self.is_a_duplicate_key_error?(exception)
-      DUPLICATE_KEY_ERROR_CODES.include?(error_code(exception))
+      DUPLICATE_KEY_ERROR_CODES.include?(exception.code)
     end
 
     # Catch a duplicate key error
     def save_and_retry(options = {})
-      if ::Mongoid::VERSION < '3'
-        begin
-          safely.save!
-        rescue Mongo::OperationFailure => e
-          retry_if_duplicate_key_error(e, options)
-        end
-      else
-        begin
-          with(safe: true).save!
-        rescue Moped::Errors::OperationFailure => e
-          retry_if_duplicate_key_error(e, options)
-        end
+      begin
+        result = with(safe: true).save!
+        result
+      rescue Mongo::Error::OperationFailure => e
+        result = retry_if_duplicate_key_error(e, options)
+        result
       end
     end
 
@@ -55,6 +31,7 @@ module Mongoid
             save_and_retry(options)
           else
             update_document!(duplicate, options.merge(retries: retries - 1))
+            self.attributes = duplicate.attributes.except(:_id)
           end
         end
       else
@@ -68,10 +45,13 @@ module Mongoid
       self.class.where(keys).first
     end
 
+    # [11000]: E11000 duplicate key error collection: sn_test_master.subseason_player_stats index: stat_module_id_1_subseason_id_1_team_id_1_player_id_1 dup key: { stat_module_id: ObjectId('65e5fb893349e7d9482bc2cf'), subseason_id: 2, team_id: 1, player_id: 5 } (on localhost:27017, legacy retry, attempt 1)
     def duplicate_key(exception)
-      index = ::Mongoid::MongoidRetry.error_message(exception)[/(?<=\.\$)\w*/,0]
-      fields = index.split(/\d/).map{|s| s.gsub(/^_|_-?$/,'')}
-      fields.inject({}) {|hash, key| hash[key] = send(key) if respond_to?(key); hash}
+      str = exception.message[/\{[^{}]+\}/,0]
+      if str
+        str.gsub!('ObjectId', 'BSON::ObjectId')
+        eval(str)
+      end
     end
 
     def update_document!(duplicate, options = {})
