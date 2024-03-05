@@ -49,7 +49,7 @@ module Mongoid
     def duplicate_key(exception)
       str = exception.message[/\{[^{}]+\}/,0]
       if str
-        str.gsub!('ObjectId', 'BSON::ObjectId')
+        str.gsub!('ObjectId', 'BSON::ObjectId').gsub!('null', 'nil')
         eval(str)
       end
     end
