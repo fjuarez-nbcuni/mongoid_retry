@@ -13,7 +13,7 @@ module Mongoid
     # Catch a duplicate key error
     def save_and_retry(options = {})
       begin
-        result = with(write_concern: { w: 1 }).save!
+        result = with(write: { w: 1 }).save!
         result
       rescue Mongo::Error::OperationFailure => e
         result = retry_if_duplicate_key_error(e, options)
